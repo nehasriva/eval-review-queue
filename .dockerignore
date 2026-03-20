@@ -1,0 +1,15 @@
+_internal/
+.claude/
+*.db
+*.sqlite
+*.sqlite3
+__pycache__/
+*.py[cod]
+.env
+.env.local
+.DS_Store
+*.egg-info/
+venv/
+env/
+.pytest_cache/
+.coverage

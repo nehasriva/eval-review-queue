@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eval Review Queue</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        header {
+            background: #2c3e50;
+            color: white;
+            padding: 16px 0;
+            margin-bottom: 24px;
+        }
+
+        header .container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        header h1 { font-size: 22px; font-weight: 600; }
+
+        .reviewer-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: rgba(255,255,255,0.8);
+        }
+
+        .reviewer-badge label { white-space: nowrap; }
+
+        .reviewer-input {
+            background: rgba(255,255,255,0.15);
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 6px;
+            color: white;
+            font-size: 13px;
+            padding: 3px 10px;
+            width: 140px;
+            outline: none;
+        }
+
+        .reviewer-input::placeholder { color: rgba(255,255,255,0.5); }
+        .reviewer-input:focus { border-color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.2); }
+
+        .container { max-width: 1100px; margin: 0 auto; padding: 0 20px; }
+
+        /* Toast */
+        #toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .toast {
+            padding: 12px 20px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            color: white;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            animation: slideIn 0.2s ease;
+        }
+
+        .toast.success { background: #27ae60; }
+        .toast.error   { background: #e74c3c; }
+        .toast.info    { background: #3498db; }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to   { transform: translateX(0);    opacity: 1; }
+        }
+
+        /* Stats */
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 16px;
+            border-radius: 8px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        }
+
+        .stat-card h3 { font-size: 12px; color: #888; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-card .value { font-size: 28px; font-weight: 700; color: #2c3e50; }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .tab {
+            padding: 10px 18px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 15px;
+            color: #888;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+        }
+
+        .tab.active { color: #2c3e50; border-bottom-color: #3498db; font-weight: 600; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* Filter bar */
+        .filter-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .filter-bar span { font-size: 13px; color: #888; }
+
+        .filter-btn {
+            padding: 5px 14px;
+            border: 1.5px solid #ddd;
+            background: white;
+            border-radius: 16px;
+            cursor: pointer;
+            font-size: 13px;
+            color: #555;
+            transition: all 0.15s;
+        }
+
+        .filter-btn:hover { border-color: #3498db; color: #3498db; }
+        .filter-btn.active { background: #3498db; border-color: #3498db; color: white; }
+
+        .progress-text {
+            margin-left: auto;
+            font-size: 13px;
+            color: #888;
+        }
+
+        /* Keyboard hints */
+        .keyboard-hints {
+            font-size: 12px;
+            color: #aaa;
+            margin-bottom: 16px;
+        }
+
+        .keyboard-hints kbd {
+            background: #f0f0f0;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            padding: 1px 5px;
+            font-family: monospace;
+            font-size: 11px;
+        }
+
+        /* Transcript cards */
+        .transcript-list { display: grid; gap: 20px; }
+
+        .transcript-card {
+            background: white;
+            border-radius: 8px;
+            padding: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border-left: 4px solid transparent;
+            transition: border-color 0.2s;
+        }
+
+        .transcript-card.active-card { border-left-color: #3498db; }
+        .transcript-card.deferred { opacity: 0.6; }
+
+        .transcript-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 14px;
+        }
+
+        .trigger-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .trigger-badge.metric_contradiction { background: #ffe5e5; color: #c0392b; }
+        .trigger-badge.edge_case            { background: #fff3cd; color: #856404; }
+        .trigger-badge.random_sample        { background: #d4edda; color: #155724; }
+
+        .trigger-reason { margin-top: 6px; color: #666; font-size: 13px; }
+
+        .card-meta { text-align: right; font-size: 12px; color: #aaa; line-height: 1.8; }
+
+        /* Conversation bubbles */
+        .conversation {
+            margin: 14px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 320px;
+            overflow-y: auto;
+            padding: 4px 0;
+        }
+
+        .turn {
+            display: flex;
+            flex-direction: column;
+            max-width: 80%;
+        }
+
+        .turn.user { align-self: flex-end; align-items: flex-end; }
+        .turn.agent { align-self: flex-start; align-items: flex-start; }
+
+        .turn-label {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #aaa;
+            margin-bottom: 3px;
+        }
+
+        .bubble {
+            padding: 8px 14px;
+            border-radius: 14px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .turn.user .bubble  { background: #e8f4fd; color: #1a5276; border-bottom-right-radius: 4px; }
+        .turn.agent .bubble { background: #f0f0f0; color: #333; border-bottom-left-radius: 4px; }
+
+        .transcript-raw {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-family: 'Monaco', 'Courier New', monospace;
+        }
+
+        /* Metrics */
+        .metrics-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 12px 0;
+        }
+
+        .metric-item {
+            background: #f8f9fa;
+            padding: 8px 12px;
+            border-radius: 6px;
+            min-width: 120px;
+        }
+
+        .metric-item label { display: block; font-size: 11px; color: #888; margin-bottom: 2px; }
+        .metric-item .metric-value { font-size: 17px; font-weight: 700; color: #2c3e50; }
+        .metric-item.flagged { background: #fff3cd; }
+        .metric-item.flagged .metric-value { color: #856404; }
+
+        /* Annotation form */
+        .annotation-form {
+            background: #f8f9fa;
+            padding: 18px;
+            border-radius: 8px;
+            margin-top: 16px;
+        }
+
+        .annotation-form h4 {
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #888;
+            margin-bottom: 14px;
+        }
+
+        .score-group {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+
+        .score-item label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .score-item .rubric {
+            font-size: 11px;
+            color: #888;
+            margin-bottom: 6px;
+        }
+
+        .score-buttons { display: flex; gap: 4px; }
+
+        .score-btn {
+            flex: 1;
+            padding: 7px 4px;
+            border: 2px solid #ddd;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.15s;
+        }
+
+        .score-btn:hover { border-color: #3498db; }
+        .score-btn.selected { background: #3498db; color: white; border-color: #3498db; }
+
+        /* Failure modes */
+        .failure-modes { margin: 4px 0 18px; }
+
+        .failure-modes > label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .failure-mode-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+
+        .failure-tag {
+            padding: 5px 12px;
+            border: 1.5px solid #ddd;
+            background: white;
+            border-radius: 16px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.15s;
+            position: relative;
+        }
+
+        .failure-tag:hover { border-color: #e74c3c; color: #e74c3c; }
+        .failure-tag.selected { background: #e74c3c; color: white; border-color: #e74c3c; }
+
+        .failure-tag[title]:hover::after {
+            content: attr(title);
+            position: absolute;
+            bottom: calc(100% + 6px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: #333;
+            color: white;
+            font-size: 11px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            white-space: nowrap;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1.5px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 70px;
+        }
+
+        textarea:focus { outline: none; border-color: #3498db; }
+
+        .form-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 14px;
+            align-items: center;
+        }
+
+        .submit-btn {
+            background: #27ae60;
+            color: white;
+            border: none;
+            padding: 10px 24px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .submit-btn:hover { background: #229954; }
+
+        .defer-btn {
+            background: white;
+            color: #888;
+            border: 1.5px solid #ddd;
+            padding: 10px 18px;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .defer-btn:hover { border-color: #aaa; color: #555; }
+
+        .shortcut-hint { font-size: 12px; color: #bbb; margin-left: auto; }
+
+        /* Empty/loading states */
+        .empty-state { text-align: center; padding: 60px 20px; color: #aaa; }
+        .empty-state h3 { font-size: 20px; margin-bottom: 8px; }
+        .loading { text-align: center; padding: 40px; color: #aaa; }
+
+        /* Test case cards */
+        .test-case-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            margin-bottom: 14px;
+        }
+
+        .test-case-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .approve-btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 18px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .approve-btn:hover { background: #2980b9; }
+
+        .config-display {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 6px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 12px;
+            margin-top: 10px;
+            white-space: pre-wrap;
+        }
+
+        audio { width: 100%; margin: 12px 0; }
+    </style>
+</head>
+<body>
+    <div id="toast-container"></div>
+
+    <header>
+        <div class="container">
+            <h1>Eval Review Queue</h1>
+            <div class="reviewer-badge">
+                <label for="reviewer-input">Reviewer:</label>
+                <input id="reviewer-input" class="reviewer-input" placeholder="Enter your name" />
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="stats-bar" id="stats-bar"></div>
+
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('review', this)">Review Queue</button>
+            <button class="tab" onclick="switchTab('staging', this)">Staging Test Cases</button>
+        </div>
+
+        <div id="review-tab" class="tab-content active">
+            <div class="filter-bar">
+                <span>Filter:</span>
+                <button class="filter-btn active" data-filter="all" onclick="setFilter('all', this)">All</button>
+                <button class="filter-btn" data-filter="metric_contradiction" onclick="setFilter('metric_contradiction', this)">Metric Contradiction</button>
+                <button class="filter-btn" data-filter="edge_case" onclick="setFilter('edge_case', this)">Edge Case</button>
+                <button class="filter-btn" data-filter="random_sample" onclick="setFilter('random_sample', this)">Random Sample</button>
+                <span class="progress-text" id="progress-text"></span>
+            </div>
+            <div class="keyboard-hints">
+                Keyboard shortcuts: <kbd>1</kbd>–<kbd>5</kbd> score active dimension &nbsp;·&nbsp; <kbd>D</kbd> defer &nbsp;·&nbsp; <kbd>Enter</kbd> submit
+            </div>
+            <div id="transcript-list" class="transcript-list">
+                <div class="loading">Loading transcripts…</div>
+            </div>
+        </div>
+
+        <div id="staging-tab" class="tab-content">
+            <div id="staging-list">
+                <div class="loading">Loading test cases…</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin + '/api';
+
+        // ── Reviewer ID ──────────────────────────────────────────────────────
+        function initReviewerInput() {
+            const input = document.getElementById('reviewer-input');
+            const saved = localStorage.getItem('reviewer_id') || '';
+            input.value = saved;
+            input.addEventListener('change', () => {
+                const val = input.value.trim() || 'anonymous';
+                input.value = val;
+                localStorage.setItem('reviewer_id', val);
+            });
+        }
+
+        function getReviewerId() {
+            return localStorage.getItem('reviewer_id') || 'anonymous';
+        }
+
+        // ── Toast ─────────────────────────────────────────────────────────────
+        function showToast(message, type = 'info', duration = 3000) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), duration);
+        }
+
+        // ── XSS escape ───────────────────────────────────────────────────────
+        function escapeHtml(str) {
+            if (str == null) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        // ── State ─────────────────────────────────────────────────────────────
+        let allTranscripts = [];
+        let activeFilter = 'all';
+        let activeCardId = null;
+        let activeDimensionIndex = 0;
+        let currentPage = 1;
+        let hasMore = false;
+        const PER_PAGE = 50;
+
+        const DIMENSIONS = ['naturalness', 'intent_understanding', 'recovery', 'tone'];
+
+        const DIMENSION_RUBRICS = {
+            naturalness:          '1 = robotic throughout, 5 = indistinguishable from human',
+            intent_understanding: '1 = completely missed intent, 5 = understood on first turn',
+            recovery:             '1 = failed to recover from errors, 5 = seamless recovery',
+            tone:                 '1 = totally wrong tone for context, 5 = perfect throughout',
+        };
+
+        const FAILURE_MODES = {
+            agent_repeated:            'Agent said the same thing more than once',
+            misunderstood_clarification:'Didn\'t correctly interpret a clarifying question',
+            tone_too_formal:           'Language was overly formal for the context',
+            tone_too_casual:           'Language was too casual or informal',
+            interrupted_poorly:        'Handled user interruption badly',
+            completed_wrong_task:      'Completed a different task than requested',
+            missed_context:            'Ignored relevant prior context in the conversation',
+            unhelpful_response:        'Response didn\'t help the user move forward',
+            incorrect_information:     'Provided factually wrong information',
+            awkward_pacing:            'Conversation timing or pacing felt off',
+        };
+
+        // ── Tabs ─────────────────────────────────────────────────────────────
+        function switchTab(tabName, el) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            el.classList.add('active');
+            document.getElementById(tabName + '-tab').classList.add('active');
+            if (tabName === 'staging') loadStagingTestCases();
+        }
+
+        // ── Filter ────────────────────────────────────────────────────────────
+        function setFilter(filter, el) {
+            activeFilter = filter;
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            el.classList.add('active');
+            currentPage = 1;
+            allTranscripts = [];
+            loadTranscripts();
+        }
+
+        // ── Stats ─────────────────────────────────────────────────────────────
+        async function loadStats() {
+            try {
+                const res = await fetch(`${API_BASE}/stats`);
+                const stats = await res.json();
+                document.getElementById('stats-bar').innerHTML = `
+                    <div class="stat-card">
+                        <h3>Pending</h3>
+                        <div class="value">${stats.status_counts.pending || 0}</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Reviewed</h3>
+                        <div class="value">${stats.status_counts.reviewed || 0}</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Test Cases</h3>
+                        <div class="value">${stats.test_cases_generated}</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Contradictions</h3>
+                        <div class="value">${stats.trigger_counts.metric_contradiction || 0}</div>
+                    </div>
+                `;
+            } catch (e) {
+                console.error('Error loading stats:', e);
+            }
+        }
+
+        // ── Transcripts ───────────────────────────────────────────────────────
+        async function loadTranscripts(append = false) {
+            const list = document.getElementById('transcript-list');
+            if (!append) list.innerHTML = '<div class="loading">Loading transcripts…</div>';
+
+            try {
+                let url = `${API_BASE}/transcripts/pending?page=${currentPage}&per_page=${PER_PAGE}`;
+                if (activeFilter !== 'all') url += `&trigger_type=${encodeURIComponent(activeFilter)}`;
+
+                const res = await fetch(url);
+                const page = await res.json();
+
+                if (append) {
+                    allTranscripts = allTranscripts.concat(page);
+                } else {
+                    allTranscripts = page;
+                }
+
+                hasMore = page.length === PER_PAGE;
+                renderTranscripts();
+            } catch (e) {
+                list.innerHTML =
+                    `<div class="empty-state"><h3>Error loading transcripts</h3><p>${escapeHtml(e.message)}</p></div>`;
+            }
+        }
+
+        function renderTranscripts() {
+            const list = document.getElementById('transcript-list');
+
+            document.getElementById('progress-text').textContent =
+                allTranscripts.length ? `${allTranscripts.length}${hasMore ? '+' : ''} remaining` : '';
+
+            if (allTranscripts.length === 0) {
+                list.innerHTML = `<div class="empty-state">
+                    <h3>No transcripts to review</h3>
+                    <p>${activeFilter === 'all' ? 'All caught up! New transcripts appear here when test runs complete.' : 'No transcripts match this filter.'}</p>
+                </div>`;
+                return;
+            }
+
+            const cards = allTranscripts.map(t => renderTranscriptCard(t)).join('');
+            const loadMore = hasMore
+                ? `<button class="defer-btn" style="width:100%;margin-top:8px" onclick="loadMoreTranscripts()">Load more</button>`
+                : '';
+            list.innerHTML = cards + loadMore;
+        }
+
+        async function loadMoreTranscripts() {
+            currentPage++;
+            await loadTranscripts(true);
+        }
+
+        // ── Conversation rendering ────────────────────────────────────────────
+        function parseConversation(text) {
+            if (!text) return null;
+            const lines = text.split('\n').filter(l => l.trim());
+            const turns = [];
+            for (const line of lines) {
+                const userMatch  = line.match(/^User:\s*(.*)/i);
+                const agentMatch = line.match(/^Agent:\s*(.*)/i);
+                if (userMatch)  turns.push({ role: 'user',  text: userMatch[1] });
+                else if (agentMatch) turns.push({ role: 'agent', text: agentMatch[1] });
+            }
+            return turns.length >= 2 ? turns : null;
+        }
+
+        function renderConversation(transcript) {
+            const turns = parseConversation(transcript.transcript_text);
+            if (!turns) {
+                return `<div class="transcript-raw">${escapeHtml(transcript.transcript_text)}</div>`;
+            }
+            return `<div class="conversation">
+                ${turns.map(t => `
+                    <div class="turn ${escapeHtml(t.role)}">
+                        <div class="turn-label">${t.role === 'user' ? 'User' : 'Agent'}</div>
+                        <div class="bubble">${escapeHtml(t.text)}</div>
+                    </div>
+                `).join('')}
+            </div>`;
+        }
+
+        // ── Metric rendering ──────────────────────────────────────────────────
+        function renderMetrics(metrics, triggerReason) {
+            if (!metrics || Object.keys(metrics).length === 0) return '';
+            return `<div class="metrics-grid">
+                ${Object.entries(metrics).map(([key, value]) => {
+                    const flagged = triggerReason && triggerReason.toLowerCase().includes(key.replace(/_/g, ' ').toLowerCase());
+                    return `<div class="metric-item ${flagged ? 'flagged' : ''}">
+                        <label>${escapeHtml(key.replace(/_/g, ' '))}</label>
+                        <div class="metric-value">${typeof value === 'number' ? value.toFixed(2) : escapeHtml(String(value))}</div>
+                    </div>`;
+                }).join('')}
+            </div>`;
+        }
+
+        // ── Transcript card ───────────────────────────────────────────────────
+        function renderTranscriptCard(t) {
+            const failureTags = Object.entries(FAILURE_MODES).map(([mode, desc]) => `
+                <button class="failure-tag" data-mode="${escapeHtml(mode)}"
+                    title="${escapeHtml(desc)}"
+                    onclick="toggleFailureMode(${t.id}, '${escapeHtml(mode)}')">
+                    ${escapeHtml(mode.replace(/_/g, ' '))}
+                </button>
+            `).join('');
+
+            const scoreDimensions = DIMENSIONS.map(dim => `
+                <div class="score-item">
+                    <label>${escapeHtml(dim.replace(/_/g, ' '))}</label>
+                    <div class="rubric">${escapeHtml(DIMENSION_RUBRICS[dim])}</div>
+                    <div class="score-buttons" data-dimension="${escapeHtml(dim)}">
+                        ${[1,2,3,4,5].map(n => `
+                            <button class="score-btn" data-score="${n}"
+                                onclick="selectScore(${t.id}, '${escapeHtml(dim)}', ${n})">
+                                ${n}
+                            </button>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+
+            return `
+                <div class="transcript-card" data-id="${t.id}" onclick="setActiveCard(${t.id})">
+                    <div class="transcript-header">
+                        <div>
+                            <span class="trigger-badge ${escapeHtml(t.trigger_type)}">
+                                ${escapeHtml(t.trigger_type.replace(/_/g, ' '))}
+                            </span>
+                            <div class="trigger-reason">${escapeHtml(t.trigger_reason || '')}</div>
+                        </div>
+                        <div class="card-meta">
+                            <div>${escapeHtml(t.test_case_id)}</div>
+                            <div>${escapeHtml(t.conversation_path || 'N/A')}</div>
+                        </div>
+                    </div>
+
+                    ${t.audio_url ? `<audio controls><source src="${escapeHtml(t.audio_url)}" type="audio/mpeg"></audio>` : ''}
+
+                    ${renderConversation(t)}
+                    ${renderMetrics(t.metrics, t.trigger_reason)}
+
+                    <div class="annotation-form">
+                        <h4>Annotation</h4>
+                        <div class="score-group">${scoreDimensions}</div>
+
+                        <div class="failure-modes">
+                            <label>Failure Modes <small style="font-weight:400;color:#aaa">(hover for description)</small></label>
+                            <div class="failure-mode-tags" data-transcript-id="${t.id}">${failureTags}</div>
+                        </div>
+
+                        <div style="margin-top:14px">
+                            <label for="notes-${t.id}" style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">Notes</label>
+                            <textarea id="notes-${t.id}" placeholder="Any other observations…"></textarea>
+                        </div>
+
+                        <div class="form-actions">
+                            <button class="submit-btn" onclick="submitAnnotation(${t.id})">Submit Review</button>
+                            <button class="defer-btn" onclick="deferTranscript(${t.id})">Skip for now</button>
+                            <span class="shortcut-hint"><kbd>Enter</kbd> submit &nbsp; <kbd>D</kbd> skip</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ── Active card + keyboard shortcuts ─────────────────────────────────
+        function setActiveCard(id) {
+            activeCardId = id;
+            activeDimensionIndex = 0;
+            document.querySelectorAll('.transcript-card').forEach(c => {
+                c.classList.toggle('active-card', parseInt(c.dataset.id) === id);
+            });
+        }
+
+        document.addEventListener('keydown', e => {
+            if (!activeCardId) return;
+            if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+
+            const score = parseInt(e.key);
+            if (score >= 1 && score <= 5) {
+                const dim = DIMENSIONS[activeDimensionIndex];
+                selectScore(activeCardId, dim, score);
+                activeDimensionIndex = Math.min(activeDimensionIndex + 1, DIMENSIONS.length - 1);
+                return;
+            }
+
+            if (e.key === 'd' || e.key === 'D') deferTranscript(activeCardId);
+            if (e.key === 'Enter') submitAnnotation(activeCardId);
+        });
+
+        // ── Scoring ───────────────────────────────────────────────────────────
+        function selectScore(transcriptId, dimension, score) {
+            const card = document.querySelector(`[data-id="${transcriptId}"]`);
+            if (!card) return;
+            card.querySelectorAll(`[data-dimension="${dimension}"] .score-btn`).forEach(btn => {
+                btn.classList.toggle('selected', parseInt(btn.dataset.score) === score);
+            });
+        }
+
+        function toggleFailureMode(transcriptId, mode) {
+            const card = document.querySelector(`[data-id="${transcriptId}"]`);
+            if (!card) return;
+            card.querySelector(`[data-mode="${mode}"]`).classList.toggle('selected');
+        }
+
+        // ── Submit ────────────────────────────────────────────────────────────
+        async function submitAnnotation(transcriptId) {
+            const card = document.querySelector(`[data-id="${transcriptId}"]`);
+            if (!card) return;
+
+            const scores = {};
+            for (const dim of DIMENSIONS) {
+                const selected = card.querySelector(`[data-dimension="${dim}"] .score-btn.selected`);
+                scores[dim + '_score'] = selected ? parseInt(selected.dataset.score) : null;
+            }
+
+            if (Object.values(scores).some(v => v === null)) {
+                showToast('Please rate all four dimensions before submitting', 'error');
+                return;
+            }
+
+            const failureModes = [...card.querySelectorAll('.failure-tag.selected')].map(t => t.dataset.mode);
+            const notes = document.getElementById(`notes-${transcriptId}`).value;
+
+            try {
+                const res = await fetch(`${API_BASE}/transcripts/${transcriptId}/annotate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        ...scores,
+                        failure_modes: failureModes,
+                        notes,
+                        reviewer_id: getReviewerId()
+                    })
+                });
+
+                if (res.ok) {
+                    const result = await res.json();
+                    showToast(`Saved. ${result.test_cases_generated} test case(s) generated.`, 'success');
+                    card.remove();
+                    allTranscripts = allTranscripts.filter(t => t.id !== transcriptId);
+                    activeCardId = null;
+                    renderTranscripts();
+                    loadStats();
+                } else {
+                    showToast('Error submitting review', 'error');
+                }
+            } catch (e) {
+                showToast('Network error: ' + e.message, 'error');
+            }
+        }
+
+        // ── Defer ─────────────────────────────────────────────────────────────
+        async function deferTranscript(transcriptId) {
+            try {
+                await fetch(`${API_BASE}/transcripts/${transcriptId}/defer`, { method: 'POST' });
+                allTranscripts = allTranscripts.filter(t => t.id !== transcriptId);
+                activeCardId = null;
+                renderTranscripts();
+                showToast('Transcript deferred — it will reappear next session', 'info');
+            } catch (e) {
+                showToast('Error deferring transcript', 'error');
+            }
+        }
+
+        // ── Staging test cases ────────────────────────────────────────────────
+        async function loadStagingTestCases() {
+            try {
+                const res = await fetch(`${API_BASE}/test-cases/staging`);
+                const testCases = await res.json();
+                const listDiv = document.getElementById('staging-list');
+
+                if (testCases.length === 0) {
+                    listDiv.innerHTML = `<div class="empty-state">
+                        <h3>No test cases in staging</h3>
+                        <p>Test cases generated from reviews will appear here.</p>
+                    </div>`;
+                    return;
+                }
+
+                listDiv.innerHTML = testCases.map(tc => `
+                    <div class="test-case-card" data-id="${tc.id}">
+                        <div class="test-case-header">
+                            <div>
+                                <h3>${escapeHtml(tc.template)}</h3>
+                                <p style="color:#888;font-size:13px;margin-top:4px">
+                                    From failure: <strong>${escapeHtml(tc.failure_mode.replace(/_/g, ' '))}</strong>
+                                    &nbsp;·&nbsp; Source: ${escapeHtml(tc.source_test_case)}
+                                </p>
+                            </div>
+                            <button class="approve-btn" onclick="approveTestCase(${tc.id})">
+                                Approve &amp; Add to Suite
+                            </button>
+                        </div>
+                        <div class="config-display">${escapeHtml(JSON.stringify(tc.config, null, 2))}</div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                showToast('Error loading test cases', 'error');
+            }
+        }
+
+        async function approveTestCase(testCaseId) {
+            try {
+                const res = await fetch(`${API_BASE}/test-cases/${testCaseId}/approve`, { method: 'POST' });
+                if (res.ok) {
+                    showToast('Test case approved', 'success');
+                    document.querySelector(`.test-case-card[data-id="${testCaseId}"]`).remove();
+                    loadStats();
+                } else {
+                    showToast('Error approving test case', 'error');
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, 'error');
+            }
+        }
+
+        // ── Init ──────────────────────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', () => {
+            initReviewerInput();
+            loadStats();
+            loadTranscripts();
+            setInterval(loadStats, 30000);
+        });
+    </script>
+</body>
+</html>
